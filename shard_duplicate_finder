@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+
+#-- set SCRIPT_DEBUG to get debug messages.
+REQUIRED_PROGS=(dirname basename mktemp)
+MINIMUM_JAVA_MAJOR_VERSION="11"
+JAR_WILDCARD="shard_duplicate_finder*.jar"
+LOCAL_HEAP="5g"
+
+GC_TUNE_ARR=('-XX:+UnlockExperimentalVMOptions' \
+  '-XX:+UseZGC' \
+  '-XX:+ParallelRefProcEnabled' \
+  '-XX:+AlwaysPreTouch' \
+  '-XX:+ExplicitGCInvokesConcurrent' \
+  '-XX:+UseNUMA' \
+)
+
+# To work around a bug in Git Bash.
+MSYS_NO_PATHCONV=1
+export MSYS_NO_PATHCONV
+
+function get_timestamp() {
+  date "+%4Y-%m-%d_%H:%M:%S.%3N"
+}
+
+function log_debug() {
+  if [ -n "${SCRIPT_DEBUG}" ]; then
+    echo -e "$(get_timestamp) DEBUG $*"
+  fi
+}
+
+function log_info() {
+  echo -e "$(get_timestamp) INFO  $*"
+}
+
+function log_warn() {
+  echo -e "$(get_timestamp) WARN  $*"
+}
+
+function log_err() {
+  echo -e "$(get_timestamp) ERROR $*" >> /dev/stderr
+}
+
+function cleanup_and_exit() {
+  local EXITCODE var
+  EXITCODE="$1"
+  shift
+
+  if [ -z "${EXITCODE}" ]; then
+    EXITCODE="0"
+  fi
+
+  for var in "${TMP_VARS[@]}"
+  do
+    rm -f "${!var}"
+  done
+
+  if [ "${EXITCODE}" -ne 0 ]; then
+    log_err "Exit code is ${EXITCODE}.  Something went wrong."
+  fi
+  exit "${EXITCODE}"
+}
+
+function assign_temp_file() {
+  local TMPFILENAME VARNAME
+  VARNAME="$1"
+  shift
+  TMPFILENAME="$(mktemp)"
+  rm -f "${TMPFILENAME}"
+  eval "${VARNAME}"="$TMPFILENAME"
+  TMP_VARS+=("${VARNAME}")
+  # debugging
+  #log_warn "${VARNAME}=\"${TMPFILENAME}\""
+}
+
+function print_java_paths_stderr() {
+  if [ -n "${SOLR_JAVA_HOME}" ]; then
+    log_err "JAVA_HOME initialized from SOLR_JAVA_HOME"
+    log_err "SOLR_JAVA_HOME=\"${SOLR_JAVA_HOME}\""
+  elif [ -n "${JAVA_HOME_DERIVED}" ]; then
+    log_err "JAVA_HOME was derived from java on the path"
+  elif [ -n "${JAVA_HOME_EXPLICIT}" ]; then
+    log_err "JAVA_HOME was already defined"
+  else
+    log_err "Don't have info about where JAVA_HOME came from."
+  fi
+  log_err "JAVA_HOME=\"${JAVA_HOME}\""
+  log_err "JAVA_BIN=\"${JAVA_BIN}\""
+}
+
+function die() {
+  print_java_paths_stderr
+  log_err "$*"
+  cleanup_and_exit 1
+}
+
+function find_java_home() {
+  local JAVA_PATH JAVA_REALPATH JAVA_DIR TMP_PATH
+  if [ -n "${JAVA_HOME}" ]; then
+    JAVA_HOME_EXPLICIT="true"
+    return
+  fi
+  if [ -n "${SOLR_JAVA_HOME}" ]; then
+    JAVA_HOME="${SOLR_JAVA_HOME}"
+  fi
+  if [ -z "${JAVA_HOME}" ]; then
+    JAVA_PATH="$(which java)"
+    RET="$?"
+    if [ "$RET" -eq 0 ]; then
+      JAVA_REALPATH="$(realpath "${JAVA_PATH}")"
+      JAVA_DIR="$(dirname "${JAVA_REALPATH}")"
+      JAVA_HOME="$(cd "${JAVA_DIR}" || exit ; pwd -P)"
+      BASENAME_HOME="$(basename "${JAVA_HOME}")"
+      if [ "${BASENAME_HOME}" == "bin" ]; then
+        TMP_PATH="$(dirname "${JAVA_HOME}")"
+	JAVA_HOME="${TMP_PATH}"
+      fi
+      JAVA_HOME_DERIVED="true"
+    fi
+  fi
+
+  JAVA_BIN="${JAVA_HOME}/bin/java"
+  if [ ! -x "${JAVA_BIN}" ]; then
+    JAVA_BIN="${JAVA_HOME}/java"
+    if [ ! -x "${JAVA_BIN}" ]; then
+      die "No executable found at ${JAVA_BIN}"
+    fi
+  fi
+
+  # This does not actually check the Java version.  It just makes sure Java can run.
+  "${JAVA_BIN}" -Xmx4m -XX:+CrashOnOutOfMemoryError -version > /dev/null 2>&1
+  RET="$?"
+  if [ "$RET" -ne 0 ]; then
+    die "Running ${JAVA_BIN} with basic options failed."
+  fi
+}
+
+function check_required_progs() {
+  local PROG PROG_MISSING
+  for PROG in "${REQUIRED_PROGS[@]}"
+  do
+    if [ ! -x "$(which "${PROG}")" ]; then
+      log_err "Required program ${PROG} not in PATH!"
+      PROG_MISSING="true"
+      break
+    fi
+  done
+  if [ -n "${PROG_MISSING}" ]; then
+    die "Aborting."
+  fi
+
+}
+
+#======================
+# Begin execution
+#======================
+
+log_debug "Starting."
+TMP_VARS=()
+SCRIPT_DIR="$(cd "$(dirname "$0")" || die "Error on cd to define SCRIPT_DIR" ; pwd -P)"
+cd "${SCRIPT_DIR}" || die "Can't cd to script directory ${SCRIPT_DIR}"
+
+# shellcheck disable=SC2086
+if [ -r build/libs/${JAR_WILDCARD} ]; then
+# shellcheck disable=SC2086
+  JAR_FILE="$(echo build/libs/${JAR_WILDCARD} | tail -n1)"
+elif [ -r ${JAR_WILDCARD} ]; then
+# shellcheck disable=SC2086
+  JAR_FILE="$(echo ${JAR_WILDCARD} | tail -n1)"
+else
+  die "Unable to find jar!"
+fi
+
+log_debug "Finding JAVE_HOME."
+find_java_home
+log_debug "Checking required programs."
+check_required_progs
+log_debug "Getting a temp file path."
+assign_temp_file "TMPFILE1"
+
+# Run the application with an option to print the log directory and immediately exit.
+# The export is to quiet shellcheck.
+log_debug "Running with --exit just to make sure it will start."
+CUSTOM_OUTPUT="$("${JAVA_BIN}" "-Xmx${LOCAL_HEAP}" -jar "${JAR_FILE}" --exit 2> "${TMPFILE1}")"
+RET="$?"
+export CUSTOM_OUTPUT
+UNSUPPORTED="$(grep -c "UnsupportedClassVersionError" "${TMPFILE1}")"
+if [ "${RET}" -ne 0 ]; then
+  {
+    echo "--- command output:"
+    cat "${TMPFILE1}"
+    echo "---"
+  } >> /dev/stderr
+  if [ "${UNSUPPORTED}" -ne 0 ]; then
+    log_err "Java not new enough.  Minimum major java version is ${MINIMUM_JAVA_MAJOR_VERSION}."
+  fi
+  die "Aborting due to error on trial run of program."
+fi
+
+# Run the application for real with all the options given to this script.
+log_info "JAVA_BIN=${JAVA_BIN}"
+log_info "JAR_FILE=${JAR_FILE}"
+log_info "Options given: $*"
+log_info "Passing control to java."
+"${JAVA_BIN}" "-Xmx${LOCAL_HEAP}" "${GC_TUNE_ARR[@]}" -jar "${JAR_FILE}" "$@"
+RET="$?"
+
+cleanup_and_exit "${RET}"
