@@ -1,13 +1,11 @@
 package org.elyograg.solr.migration;
 
-import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.solr.client.solrj.impl.CloudSolrServer;
@@ -49,7 +47,7 @@ public class Main implements Runnable {
     private static boolean exitFlag;
 
     @Option(names = { "-c",
-        "--source-collection" }, arity = "1", description = "Name of the source collection.", required = true)
+        "--collection " }, arity = "1", description = "Name of the collection.", required = true)
     private static String collection;
 
   }
@@ -64,7 +62,8 @@ public class Main implements Runnable {
   @Option(names = { "-D" }, arity = "1", paramLabel = "someProp=\"some value\"", description = ""
       + "System Property. Can be specified multiple times. "
       + "Also works just like the -D option for Java. "
-      + "Quotes are required if the value contains spaces or other special characters.")
+      + "Quotes are required if the value contains spaces or other special characters."
+      + "Don't use special characters in the property name.")
   private static List<String> properties;
 
   @Option(names = { "-r",
@@ -72,15 +71,15 @@ public class Main implements Runnable {
           + "Example: '/solr'")
   private static String chroot;
 
-  @Option(names = { "-u", "--user" }, arity = "1", description = "Username for source solr server.")
+  @Option(names = { "-u", "--user" }, arity = "1", description = "Username for solr server(s).")
   private static String user;
 
   @Option(names = { "-p",
-      "--password" }, arity = "1", description = "Password for source solr server.")
+      "--password" }, arity = "1", description = "Password for solr server(s).")
   private static String pass;
 
   @Option(names = { "-2",
-      "--http2" }, arity = "0", description = "Set the source server to use http2.")
+      "--http2" }, arity = "0", description = "Set the client to use http2.")
   private static boolean h2;
 
   @Option(names = { "-fq",
@@ -89,7 +88,7 @@ public class Main implements Runnable {
   private static List<String> fq;
 
   @Option(names = { "-b",
-      "--batch-size" }, arity = "1", defaultValue = "10000", description = "Batch size "
+      "--batch-size" }, arity = "1", defaultValue = "25000", description = "Batch size "
           + "for query. Default '${DEFAULT-VALUE}'")
   private static int batchSize;
 
@@ -127,10 +126,11 @@ public class Main implements Runnable {
 
     final Map<String, String> coreNameToCoreUrl = new HashMap<>();
 
-    final CloudSolrServer solrServer = new CloudSolrServer(zkHost);
-    solrServer.setDefaultCollection(RequiredOpts.collection);
+    final CloudSolrServer solrClient = new CloudSolrServer(zkHost);
+    solrClient.connect();
+    solrClient.setDefaultCollection(RequiredOpts.collection);
 
-    final ClusterState clusterState = solrServer.getZkStateReader().getClusterState();
+    final ClusterState clusterState = solrClient.getZkStateReader().getClusterState();
     final Collection<Slice> slices = clusterState.getActiveSlices(RequiredOpts.collection);
 
     for (final Slice slice : slices) {
@@ -142,9 +142,7 @@ public class Main implements Runnable {
     }
 
     log.warn("cores: {}", coreNameToCoreUrl);
-    
-    solrServer.shutdown();
-    System.exit(1);
+
 
     // TODO: rework.
 //    queryThread = new QueryThread(sourceClient, sourceCollection, uniqueKeyFieldName,
@@ -174,6 +172,10 @@ public class Main implements Runnable {
     // TODO: Log for all threads
 //    log.info("---");
 //    log.info("End numFound: {}", QueryThread.getEndNumFound());
+
+    log.info("Shutting down SolrClient.");
+    solrClient.shutdown();
+    System.exit(1);
 
     log.info("Main thread ending!");
   }

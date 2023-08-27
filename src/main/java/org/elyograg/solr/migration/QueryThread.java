@@ -50,7 +50,7 @@ public class QueryThread extends Thread implements Runnable {
       final SolrQuery q = new SolrQuery("*:*");
       q.set("distrib", "false");
       q.set("rows", batchSize);
-      q.set("sort", uniqueKey + " asc");
+      q.set("fl", uniqueKey);
       final List<String> filters = Main.getFilters();
       if (filters != null) {
         for (final String f : filters) {
