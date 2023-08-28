@@ -4,7 +4,6 @@ import java.io.OutputStream;
 import java.lang.invoke.MethodHandles;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -143,7 +142,7 @@ public class Main implements Runnable {
     final Set<String> coreNames = qtMap.keySet();
     for (final String outerCore : coreNames) {
       final Set<String> shardIdSet = qtMap.get(outerCore).getIdSet();
-      writeIdsToFile(shardIdSet, i);
+      writeIdsToFile(shardIdSet, outerCore);
       if (i == 0) {
         bigSet.addAll(shardIdSet);
         log.warn("Adding entire first shard IDs.");
@@ -175,14 +174,15 @@ public class Main implements Runnable {
     log.info("Main thread ending!");
   }
 
-  private void writeIdsToFile(final Set<String> shardIdSet, final int i) {
-    try (OutputStream os = Files.newOutputStream(Paths.get("idlist_" + i + ".txt"));) {
+  private void writeIdsToFile(final Set<String> shardIdSet, final String coreName) {
+    final String fileName = "idlist_" + coreName + ".txt";
+    try (OutputStream os = Files.newOutputStream(Paths.get(fileName));) {
       for (final String id : shardIdSet) {
         final String idLine = id + "\n";
         os.write(idLine.getBytes(StandardCharsets.UTF_8));
       }
     } catch (final Exception e) {
-      log.error("Error writing ID list to file {}", i, e);
+      log.error("Error writing ID list to file {}", e);
     }
   }
 
