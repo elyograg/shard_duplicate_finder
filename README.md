@@ -17,5 +17,8 @@ within a single shard.
 Accepts -D options for system properties just like Java would, if for
 instance you need to provide a keystore with CA certificates.
 
-A -v option can be provided to also log debug level messages.  It will
-output usage info if the -s option is not provided on the commandline.
+A -v option can be provided to also log debug level messages.
+
+
+Will output usage info if the -s option is not provided or the -h
+option is used.
