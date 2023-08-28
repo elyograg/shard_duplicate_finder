@@ -167,13 +167,13 @@ public class Main implements Runnable {
       i++;
     }
 
-    for (final String key : qtMap.keySet()) {
-      log.warn("{}:{}", key, qtMap.get(key).getIdSet().size());
-    }
+//    for (final String key : qtMap.keySet()) {
+//      log.warn("count {}:{}", key, qtMap.get(key).getIdSet().size());
+//    }
 
     log.info("Duplicate report:");
     for (final String id : duplicates.keySet()) {
-      log.info("count {}:{}", id, duplicates.get(id));
+      log.info("{}:{}", id, duplicates.get(id));
     }
 
     log.info("Main thread ending!");
