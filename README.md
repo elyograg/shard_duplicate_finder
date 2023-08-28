@@ -1,3 +1,16 @@
 Code to see if there are instances where a uniqueKey value appears in
-more than one shard.  Written using SolrJ 4.7.2 for use with Solr 4.7
-servers in cloud mode.
+more than one shard.  Uses the latest 9.x SolrJ and Http2SolrClient.
+
+Usage:
+
+./shard_duplicate_finder -s [core URL for shard1] -s [core URL for shard2] ...
+
+Each url would be of this format:
+
+http(s)://server:port/solr/corename
+
+Accepts -D options for system properties just like Java would, if for
+instance you need to provide a keystore with CA certificates.
+
+A -v option can be provided to also log debug level messages.  It will
+output usage info if the -s option is not provided on the commandline.
