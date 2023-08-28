@@ -166,7 +166,7 @@ public class Main implements Runnable {
       i++;
     }
 
-    log.info("Duplicate report:");
+    log.info("{} Duplicated IDs:", duplicates.size());
     for (final String id : duplicates.keySet()) {
       log.info("{}:{}", id, duplicates.get(id));
     }
