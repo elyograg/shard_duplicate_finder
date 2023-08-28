@@ -4,6 +4,8 @@ import java.io.OutputStream;
 import java.lang.invoke.MethodHandles;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -14,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.codec.Charsets;
 import org.apache.solr.client.solrj.impl.Http2SolrClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -177,7 +178,8 @@ public class Main implements Runnable {
   private void writeIdsToFile(final Set<String> shardIdSet, final int i) {
     try (OutputStream os = Files.newOutputStream(Paths.get("idlist_" + i + ".txt"));) {
       for (final String id : shardIdSet) {
-        os.write((id + "\n").getBytes(Charsets.UTF_8));
+        final String idLine = id + "\n";
+        os.write(idLine.getBytes(StandardCharsets.UTF_8));
       }
     } catch (final Exception e) {
       log.error("Error writing ID list to file {}", i, e);
