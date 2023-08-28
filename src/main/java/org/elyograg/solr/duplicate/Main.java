@@ -150,9 +150,6 @@ public class Main implements Runnable {
         continue;
       }
       for (final String id : shardIdSet) {
-        if (id.equals("162/c82d1211fbe7cc626e3e3600b69bc403/elyograg@elyograg.org")) {
-          log.warn("specific ID found in shard {}", outerCore);
-        }
         if (bigSet.contains(id)) {
           for (final String innerCore : coreNames) {
             List<String> list = duplicates.get(id);
