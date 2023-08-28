@@ -9,6 +9,11 @@ Each url would be of this format:
 
 http(s)://server:port/solr/corename
 
+You'll need one URL for each shard.  If SolrCloud replication has not
+encountered any problems, then you can pick any replica.  A different
+program would be required to detect discrepancies between replicas
+within a single shard.
+
 Accepts -D options for system properties just like Java would, if for
 instance you need to provide a keystore with CA certificates.
 
