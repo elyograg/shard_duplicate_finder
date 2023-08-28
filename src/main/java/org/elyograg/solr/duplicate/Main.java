@@ -1,8 +1,11 @@
 package org.elyograg.solr.duplicate;
 
+import java.io.OutputStream;
 import java.lang.invoke.MethodHandles;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -11,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.codec.Charsets;
 import org.apache.solr.client.solrj.impl.Http2SolrClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,6 +142,7 @@ public class Main implements Runnable {
     final Set<String> coreNames = qtMap.keySet();
     for (final String outerCore : coreNames) {
       final Set<String> shardIdSet = qtMap.get(outerCore).getIdSet();
+      writeIdsToFile(shardIdSet, i);
       if (i == 0) {
         bigSet.addAll(shardIdSet);
         if (shardIdSet.contains("162/c82d1211fbe7cc626e3e3600b69bc403/elyograg@elyograg.org")) {
@@ -167,16 +172,22 @@ public class Main implements Runnable {
       i++;
     }
 
-//    for (final String key : qtMap.keySet()) {
-//      log.warn("count {}:{}", key, qtMap.get(key).getIdSet().size());
-//    }
-
     log.info("Duplicate report:");
     for (final String id : duplicates.keySet()) {
       log.info("{}:{}", id, duplicates.get(id));
     }
 
     log.info("Main thread ending!");
+  }
+
+  private void writeIdsToFile(final Set<String> shardIdSet, final int i) {
+    try (OutputStream os = Files.newOutputStream(Paths.get("idlist_" + i + ".txt"));) {
+      for (final String id : shardIdSet) {
+        os.write((id + "\n").getBytes(Charsets.UTF_8));
+      }
+    } catch (final Exception e) {
+      log.error("Error writing ID list to file {}", i, e);
+    }
   }
 
   /**
