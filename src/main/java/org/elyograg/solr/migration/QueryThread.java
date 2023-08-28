@@ -7,9 +7,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrRequest.METHOD;
-import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.request.QueryRequest;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.SolrDocument;
@@ -27,18 +27,20 @@ public class QueryThread extends Thread implements Runnable {
   private final AtomicLong counter = new AtomicLong(0);
   private final AtomicLong startNumFound = new AtomicLong(0);
   private final AtomicLong endNumFound = new AtomicLong(0);
-  private final SolrServer client;
+  private final SolrClient client;
   private final int batchSize;
-  private final String collection;
+  private final String core;
   private final String uniqueKey;
   private Set<String> idSet;
 
-  public QueryThread(final SolrServer clientParam, final String collectionParam, final String ukParam,
+  public QueryThread(final SolrClient clientParam, final String coreParam, final String ukParam,
       final int batchParam) {
     client = clientParam;
     batchSize = batchParam;
-    collection = collectionParam;
+    core = coreParam;
     uniqueKey = ukParam;
+    this.setDaemon(true);
+    this.setName("query." + coreParam);
   }
 
   @Override
@@ -70,8 +72,7 @@ public class QueryThread extends Thread implements Runnable {
         avgLatencyMillis.set((int) (totalIndexTimeMillis.get() / requestCounter.incrementAndGet()));
         lastLatencyMillis.set((int) elapsedMillis);
       } catch (final Exception e) {
-        log.error("Collection {} cursorMark {} query exception, aborting import", collection,
-            cursorMark, e);
+        log.error("Core {} cursorMark {} query exception, aborting import", core, cursorMark, e);
         throw new RuntimeException("Problem querying, aborting import.", e);
         /*
          * TODO: This program REALLY needs an uncaught exception handler and a global
@@ -88,7 +89,15 @@ public class QueryThread extends Thread implements Runnable {
       }
       cursorMark = nextCursorMark;
     }
+    try {
+      if (client != null) {
+        client.close();
+      }
+    } catch (final Exception e) {
+      log.error("Error closing Solr client!");
+    }
     log.info("-=-=-=-=-=-=-=-=- Query thread ended");
+    
   }
 
   private void addIdstoSet(final QueryResponse rsp) {

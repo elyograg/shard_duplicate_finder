@@ -1,17 +1,16 @@
 package org.elyograg.solr.migration;
 
 import java.lang.invoke.MethodHandles;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
 
-import org.apache.solr.client.solrj.impl.CloudSolrServer;
-import org.apache.solr.common.cloud.ClusterState;
-import org.apache.solr.common.cloud.Replica;
-import org.apache.solr.common.cloud.Slice;
+import org.apache.solr.client.solrj.impl.Http2SolrClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +24,7 @@ import picocli.CommandLine.ScopeType;
     + "program to detect situations where the same id value exists in more than one shard.")
 public class Main implements Runnable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-  private static final List<QueryThread> queryThreads = new ArrayList<>();
+  private static final Map<String, QueryThread> qtMap = new HashMap<>();
 
   /** Debug option. */
   @Option(names = { "-v" }, arity = "0", description = "Log any available debug messages.")
@@ -46,17 +45,15 @@ public class Main implements Runnable {
             + "Exit the program as soon as it starts.")
     private static boolean exitFlag;
 
-    @Option(names = { "-c",
-        "--collection " }, arity = "1", description = "Name of the collection.", required = true)
-    private static String collection;
-
+    @Option(names = { "-s",
+        "--solr-url" }, arity = "1", description = "Solr URL.  MUST include a corename. "
+            + "Can be specified multiple times. "
+            + "Example: https:/server:8443/solr/corename", required = true)
+    private static List<String> solrUrls;
   }
 
-  @Option(names = { "-z", "zkhost" }, arity = "1", description = "zkHost string. "
-      + "Example: ip1:2181,ip2:2181,ip3:2181/solr", required = true)
-  private static String zkHost;
-
-  @Option(names = { "-uk" }, arity = "1", description = "UniqueKey field.")
+  @Option(names = { "-uk",
+      "--unique-key" }, arity = "1", defaultValue = "id", description = "UniqueKey field. Default '${DEFAULT-VALUE}'")
   private static String uk;
 
   @Option(names = { "-D" }, arity = "1", paramLabel = "someProp=\"some value\"", description = ""
@@ -66,20 +63,13 @@ public class Main implements Runnable {
       + "Don't use special characters in the property name.")
   private static List<String> properties;
 
-  @Option(names = { "-r",
-      "--chroot" }, arity = "1", paramLabel = "/chroot", description = "Target ZK chroot. "
-          + "Example: '/solr'")
-  private static String chroot;
-
   @Option(names = { "-u", "--user" }, arity = "1", description = "Username for solr server(s).")
   private static String user;
 
-  @Option(names = { "-p",
-      "--password" }, arity = "1", description = "Password for solr server(s).")
+  @Option(names = { "-p", "--password" }, arity = "1", description = "Password for solr server(s).")
   private static String pass;
 
-  @Option(names = { "-2",
-      "--http2" }, arity = "0", description = "Set the client to use http2.")
+  @Option(names = { "-2", "--http2" }, arity = "0", description = "Set the client to use http2.")
   private static boolean h2;
 
   @Option(names = { "-fq",
@@ -92,13 +82,13 @@ public class Main implements Runnable {
           + "for query. Default '${DEFAULT-VALUE}'")
   private static int batchSize;
 
-  public static void main(final String[] args) {
+  public static final void main(final String[] args) {
     new CommandLine(new Main()).setHelpFactory(StaticStuff.createLeftAlignedUsageHelp())
         .execute(args);
   }
 
   @Override
-  public void run() {
+  public final void run() {
     if (RequiredOpts.exitFlag) {
       System.exit(0);
     }
@@ -122,65 +112,115 @@ public class Main implements Runnable {
       }
     }
 
-    log.info("Collection {} zkHost {} ", RequiredOpts.collection, zkHost);
+    for (final String url : RequiredOpts.solrUrls) {
+      makeThread(url);
+    }
 
-    final Map<String, String> coreNameToCoreUrl = new HashMap<>();
+    for (final String key : qtMap.keySet()) {
+      qtMap.get(key).start();
+    }
 
-    final CloudSolrServer solrClient = new CloudSolrServer(zkHost);
-    solrClient.connect();
-    solrClient.setDefaultCollection(RequiredOpts.collection);
-
-    final ClusterState clusterState = solrClient.getZkStateReader().getClusterState();
-    final Collection<Slice> slices = clusterState.getActiveSlices(RequiredOpts.collection);
-
-    for (final Slice slice : slices) {
-      final Collection<Replica> replicas = slice.getReplicas();
-      for (final Replica replica : replicas) {
-        final String coreUrl = replica.getStr("base_url") + "/" + replica.getStr("core");
-        coreNameToCoreUrl.put(replica.getStr("core"), coreUrl);
+    boolean done = false;
+    while (!done) {
+      done = true;
+      for (final String key : qtMap.keySet()) {
+        if (qtMap.get(key).isAlive()) {
+          done = false;
+        }
       }
     }
 
-    log.warn("cores: {}", coreNameToCoreUrl);
+    final Map<String, List<String>> duplicates = new HashMap<>();
+    final Set<String> bigSet = new HashSet<>();
+    int i = 0;
+    final Set<String> coreKeyNames = qtMap.keySet();
+    for (final String key : coreKeyNames) {
+      final Set<String> shardIdSet = qtMap.get(key).getIdSet();
+      if (i == 0) {
+        bigSet.addAll(shardIdSet);
+        continue;
+      }
+      for (final String id : shardIdSet) {
+        if (bigSet.contains(id)) {
+          for (final String core : coreKeyNames) {
+            List<String> list = duplicates.get(id);
+            if (qtMap.get(key).getIdSet().contains(id)) {
+              if (list == null) {
+                list = new ArrayList<>();
+              }
+              list.add(core);
+              duplicates.put(id, list);
+            }
+          }
+        }
+      }
+      i++;
+    }
 
-
-    // TODO: rework.
-//    queryThread = new QueryThread(sourceClient, sourceCollection, uniqueKeyFieldName,
-//        queryBatchSize);
-//    final String name = "query_" + sourceCollection;
-//    queryThread.setName(name);
-//    queryThread.setDaemon(true);
-//    log.info("Starting {} thread", name);
-//    queryThread.start();
-//
-//    StaticStuff.logDebug(log, "Query batch size : {}", queryBatchSize);
-//
-//    // TODO: log this for each thread.
-//    log.info("Query thread started.");
-////    log.info("Start numFound: {}", QueryThread.getStartNumFound());
-
-    /*
-     * No idea why this sleep makes things work. Without it, the program dies saying
-     * that the target SolrClient is stopped.
-     */
-    StaticStuff.sleep(5, TimeUnit.SECONDS);
-
-    /*
-     * Begin the main loop where it just waits for all the other threads to do their
-     * thing.
-     */
-    // TODO: Log for all threads
-//    log.info("---");
-//    log.info("End numFound: {}", QueryThread.getEndNumFound());
+    log.info("Duplicate report:");
+    for (final String id : duplicates.keySet()) {
+      log.info("{}:{}", id, duplicates.get(id));
+    }
 
     log.info("Shutting down SolrClient.");
-    solrClient.shutdown();
     System.exit(1);
 
     log.info("Main thread ending!");
   }
 
-  public static List<String> getFilters() {
+  /**
+   * Get info from url. Create SolrClient object and thread, populating the thread
+   * map.
+   * 
+   * @param url the URL to process
+   */
+  private static final void makeThread(final String url) {
+    String coreName;
+
+    final Map<String, String> parseMap = parseUrl(url);
+    String path = parseMap.get("path");
+
+    // Remove trailing slashes
+    while (path.endsWith("/")) {
+      path = path.substring(0, path.length() - 1);
+    }
+
+    // Split the path by "/"
+    final String[] pathComponents = path.split("/");
+
+    // Retrieve the last component
+    if (pathComponents.length > 0) {
+      coreName = pathComponents[pathComponents.length - 1];
+    } else {
+      throw new IllegalArgumentException("No path components found.");
+    }
+
+    final Http2SolrClient.Builder cb = new Http2SolrClient.Builder(url);
+    cb.useHttp1_1(h2);
+    if (user != null && !user.equals("")) {
+      cb.withBasicAuthCredentials(user, pass);
+    }
+    qtMap.put(coreName, new QueryThread(cb.build(), coreName, uk, batchSize));
+  }
+
+  public static final List<String> getFilters() {
     return fq;
+  }
+
+  private static final Map<String, String> parseUrl(final String urlString) {
+    final Map<String, String> parseMap = new HashMap<>();
+    try {
+      final URL url = new URL(urlString);
+
+      parseMap.put("scheme", url.getProtocol());
+      parseMap.put("host", url.getHost());
+      parseMap.put("port", Integer.toString(url.getPort()));
+      parseMap.put("path", url.getPath());
+      parseMap.put("query", url.getQuery());
+      parseMap.put("userInfo", url.getUserInfo());
+    } catch (final MalformedURLException e) {
+      throw new IllegalArgumentException("Invalid URL: " + e.getMessage());
+    }
+    return parseMap;
   }
 }
