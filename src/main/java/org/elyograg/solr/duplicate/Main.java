@@ -145,9 +145,6 @@ public class Main implements Runnable {
       writeIdsToFile(shardIdSet, i);
       if (i == 0) {
         bigSet.addAll(shardIdSet);
-        if (shardIdSet.contains("162/c82d1211fbe7cc626e3e3600b69bc403/elyograg@elyograg.org")) {
-          log.warn("specific ID found in first shard {}", outerCore);
-        }
         log.warn("Adding entire first shard IDs.");
         i++;
         continue;
