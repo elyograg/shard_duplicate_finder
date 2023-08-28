@@ -3,7 +3,7 @@ plugins {
   id 'eclipse'
 }
 
-group = 'org.elyograg.solr.migration'
+group = 'org.elyograg.solr.duplicate'
 version = '0.3.0-SNAPSHOT'
 sourceCompatibility = '11'
 
@@ -52,7 +52,7 @@ task dist(type: Jar) {
   manifest {
     attributes 'Implementation-Title': 'Parallel Solr Migration',
       'Implementation-Version': version,
-      'Main-Class': 'org.elyograg.solr.migration.Main',
+      'Main-Class': 'org.elyograg.solr.duplicate.Main',
       'Multi-Release': 'true'
   }
   from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }

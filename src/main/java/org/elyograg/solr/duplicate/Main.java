@@ -1,9 +1,10 @@
-package org.elyograg.solr.migration;
+package org.elyograg.solr.duplicate;
 
 import java.lang.invoke.MethodHandles;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -24,7 +25,8 @@ import picocli.CommandLine.ScopeType;
     + "program to detect situations where the same id value exists in more than one shard.")
 public class Main implements Runnable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-  private static final Map<String, QueryThread> qtMap = new HashMap<>();
+  private static final Map<String, QueryThread> qtMap = Collections
+      .synchronizedMap(new HashMap<>());
 
   /** Debug option. */
   @Option(names = { "-v" }, arity = "0", description = "Log any available debug messages.")
@@ -130,25 +132,33 @@ public class Main implements Runnable {
       }
     }
 
-    final Map<String, List<String>> duplicates = new HashMap<>();
-    final Set<String> bigSet = new HashSet<>();
+    final Map<String, List<String>> duplicates = Collections.synchronizedMap(new HashMap<>());
+    final Set<String> bigSet = Collections.synchronizedSet(new HashSet<>());
     int i = 0;
-    final Set<String> coreKeyNames = qtMap.keySet();
-    for (final String key : coreKeyNames) {
-      final Set<String> shardIdSet = qtMap.get(key).getIdSet();
+    final Set<String> coreNames = qtMap.keySet();
+    for (final String outerCore : coreNames) {
+      final Set<String> shardIdSet = qtMap.get(outerCore).getIdSet();
       if (i == 0) {
         bigSet.addAll(shardIdSet);
+        if (shardIdSet.contains("162/c82d1211fbe7cc626e3e3600b69bc403/elyograg@elyograg.org")) {
+          log.warn("specific ID found in first shard {}", outerCore);
+        }
+        log.warn("Adding entire first shard IDs.");
+        i++;
         continue;
       }
       for (final String id : shardIdSet) {
+        if (id.equals("162/c82d1211fbe7cc626e3e3600b69bc403/elyograg@elyograg.org")) {
+          log.warn("specific ID found in shard {}", outerCore);
+        }
         if (bigSet.contains(id)) {
-          for (final String core : coreKeyNames) {
+          for (final String innerCore : coreNames) {
             List<String> list = duplicates.get(id);
-            if (qtMap.get(key).getIdSet().contains(id)) {
+            if (qtMap.get(innerCore).getIdSet().contains(id)) {
               if (list == null) {
-                list = new ArrayList<>();
+                list = Collections.synchronizedList(new ArrayList<>());
               }
-              list.add(core);
+              list.add(innerCore);
               duplicates.put(id, list);
             }
           }
@@ -157,13 +167,14 @@ public class Main implements Runnable {
       i++;
     }
 
-    log.info("Duplicate report:");
-    for (final String id : duplicates.keySet()) {
-      log.info("{}:{}", id, duplicates.get(id));
+    for (final String key : qtMap.keySet()) {
+      log.warn("{}:{}", key, qtMap.get(key).getIdSet().size());
     }
 
-    log.info("Shutting down SolrClient.");
-    System.exit(1);
+    log.info("Duplicate report:");
+    for (final String id : duplicates.keySet()) {
+      log.info("count {}:{}", id, duplicates.get(id));
+    }
 
     log.info("Main thread ending!");
   }
@@ -196,7 +207,7 @@ public class Main implements Runnable {
     }
 
     final Http2SolrClient.Builder cb = new Http2SolrClient.Builder(url);
-    cb.useHttp1_1(h2);
+    cb.useHttp1_1(!h2);
     if (user != null && !user.equals("")) {
       cb.withBasicAuthCredentials(user, pass);
     }
@@ -208,7 +219,7 @@ public class Main implements Runnable {
   }
 
   private static final Map<String, String> parseUrl(final String urlString) {
-    final Map<String, String> parseMap = new HashMap<>();
+    final Map<String, String> parseMap = Collections.synchronizedMap(new HashMap<>());
     try {
       final URL url = new URL(urlString);
 

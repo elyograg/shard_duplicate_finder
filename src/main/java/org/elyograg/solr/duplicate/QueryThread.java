@@ -1,6 +1,8 @@
-package org.elyograg.solr.migration;
+package org.elyograg.solr.duplicate;
 
 import java.lang.invoke.MethodHandles;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -31,7 +33,7 @@ public class QueryThread extends Thread implements Runnable {
   private final int batchSize;
   private final String core;
   private final String uniqueKey;
-  private Set<String> idSet;
+  private final Set<String> idSet = Collections.synchronizedSet(new HashSet<>());
 
   public QueryThread(final SolrClient clientParam, final String coreParam, final String ukParam,
       final int batchParam) {
@@ -52,6 +54,7 @@ public class QueryThread extends Thread implements Runnable {
       final SolrQuery q = new SolrQuery("*:*");
       q.set("distrib", "false");
       q.set("rows", batchSize);
+      q.set("sort", uniqueKey + " asc");
       q.set("fl", uniqueKey);
       final List<String> filters = Main.getFilters();
       if (filters != null) {
@@ -89,6 +92,8 @@ public class QueryThread extends Thread implements Runnable {
       }
       cursorMark = nextCursorMark;
     }
+
+    log.info("Closing SolrClient");
     try {
       if (client != null) {
         client.close();

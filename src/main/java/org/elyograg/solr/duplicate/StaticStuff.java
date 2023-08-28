@@ -1,4 +1,4 @@
-package org.elyograg.solr.migration;
+package org.elyograg.solr.duplicate;
 
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.invoke.MethodHandles;
