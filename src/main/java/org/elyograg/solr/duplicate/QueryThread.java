@@ -102,7 +102,7 @@ public class QueryThread extends Thread implements Runnable {
       log.error("Error closing Solr client!");
     }
     log.info("-=-=-=-=-=-=-=-=- Query thread ended");
-    
+
   }
 
   private void addIdstoSet(final QueryResponse rsp) {
@@ -111,7 +111,7 @@ public class QueryThread extends Thread implements Runnable {
       final String id = (String) doc.getFieldValue(uniqueKey);
       final boolean ok = idSet.add(id);
       if (!ok) {
-        log.error("ID {} is already in set. THIS SHOULD NOT HAPPEN.");
+        log.error("ID {} is already in set. THIS SHOULD NOT HAPPEN.", id);
       }
     }
   }
